@@ -15,8 +15,8 @@ import javax.crypto.spec.GCMParameterSpec;
 public final class SecureStore {
     private static final String KEY = "chk_payments_owner_v1";
     private static final String FILE = "chk_payments_config";
-    // HTTPS dédié au sidecar sur 10000 : ne modifie pas le MCP universel sur 443.
-    public static final String DEFAULT_PAYMENTS_URL = "https://chk-universal-1.taild9e4de.ts.net:10000";
+    // HTTPS privé dédié au sidecar sur 11001-11004 : ne modifie pas le MCP universel sur 443.
+    public static final String DEFAULT_PAYMENTS_URL = "https://pc-salon.taild9e4de.ts.net:11001";
     private SecureStore() {}
 
     private static SharedPreferences preferences(Context ctx) {
