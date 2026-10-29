@@ -46,7 +46,9 @@ internal sealed class PaymentsDashboard : Form
 {
     private const string TrustedTailnetSuffix = ".taild9e4de.ts.net";
     private string? paymentsHostname;
-    private string PaymentsHttps => "https://" + paymentsHostname + ":10000";
+    private static readonly int[] PrivateHttpsPorts = { 11001, 11002, 11003, 11004 };
+    private int selectedHttpsPort = 0;
+    private string PaymentsHttps => "https://" + paymentsHostname + ":" + selectedHttpsPort;
     private static readonly string Home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CHK-Paiements");
     private static readonly string Runtime = Path.Combine(Home, "runtime-v1");
     private static readonly string Data = Path.Combine(Home, "data");
@@ -59,7 +61,7 @@ internal sealed class PaymentsDashboard : Form
     private readonly CheckBox autostart = new() { Text = "Demarrer CHK Paiements avec Windows", AutoSize = true, ForeColor = Color.White };
     private readonly Button start = Button("DEMARRER LE SERVICE", 24, 146, 520, 43);
     private readonly Button pair = Button("GENERER ET COPIER LE CODE ANDROID", 24, 203, 520, 43);
-    private readonly Button https = Button("ACTIVER LE HTTPS SEPARE 10000", 24, 310, 520, 43);
+    private readonly Button https = Button("ACTIVER HTTPS PRIVE (SANS REMPLACER)", 24, 310, 520, 43);
     private readonly Button verify = Button("VERIFIER LES CONNEXIONS", 24, 367, 520, 43);
     private readonly NotifyIcon tray;
     private Process? ownedNode;
@@ -276,25 +278,26 @@ internal sealed class PaymentsDashboard : Form
         catch (OperationCanceledException) { try { p.Kill(true); } catch {} throw new TimeoutException("Tailscale ne repond pas"); }
         return (p.ExitCode, stdout + Environment.NewLine + stderr);
     }
-    // Return 0 when 10000 is unused, actual local target port, -1 when occupied by an unknown service.
-    // Only examine the 10000 Web handler; never inspect or rewrite universal port 443.
-    private static int PaymentHttpsTarget(string json)
+    // Read-only inspection of Tailscale Serve. Unknown formats are treated as occupied.
+    // Never use an existing HTTPS route, Funnel or Universal Control /mcp.
+    private static int TargetOnPort(string json, int httpsPort)
     {
         using var config = JsonDocument.Parse(json);
-        if (!config.RootElement.TryGetProperty("Web", out var web) || web.ValueKind != JsonValueKind.Object)
-            return 0;
+        if (!config.RootElement.TryGetProperty("Web", out var web) ||
+            web.ValueKind != JsonValueKind.Object) return 0;
         foreach (var endpoint in web.EnumerateObject())
         {
-            if (!endpoint.Name.EndsWith(":10000", StringComparison.OrdinalIgnoreCase)) continue;
-            if (!endpoint.Value.TryGetProperty("Handlers", out var handlers) || handlers.ValueKind != JsonValueKind.Object)
-                return -1;
+            if (!endpoint.Name.EndsWith(":" + httpsPort, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!endpoint.Value.TryGetProperty("Handlers", out var handlers) ||
+                handlers.ValueKind != JsonValueKind.Object) return -1;
             foreach (var handler in handlers.EnumerateObject())
             {
-                if (!handler.Value.TryGetProperty("Proxy", out var proxy)) return -1;
-                if (proxy.ValueKind != JsonValueKind.String) return -1;
+                if (!handler.Value.TryGetProperty("Proxy", out var proxy) ||
+                    proxy.ValueKind != JsonValueKind.String) return -1;
                 if (Uri.TryCreate(proxy.GetString(), UriKind.Absolute, out var uri) &&
-                    (uri.Host == "127.0.0.1" || uri.Host == "localhost") && uri.Port > 0)
-                    return uri.Port;
+                    (uri.Host == "127.0.0.1" || uri.Host == "localhost") &&
+                    uri.Port > 0) return uri.Port;
                 return -1;
             }
             return -1;
@@ -302,7 +305,17 @@ internal sealed class PaymentsDashboard : Form
         return 0;
     }
 
-    // Accept only our known Tailscale domain and the name of THIS PC from tailscale status.
+    private (int port, bool alreadyOwned) ChoosePrivateHttpsPort(string config)
+    {
+        // First reuse our own existing route, if any; otherwise add only a completely unused port.
+        foreach (int port in PrivateHttpsPorts)
+            if (TargetOnPort(config, port) == activePort) return (port, true);
+        foreach (int port in PrivateHttpsPorts)
+            if (TargetOnPort(config, port) == 0) return (port, false);
+        return (0, false);
+    }
+
+    // Accept only this PC's actual Tailscale identity, never the other PC's hostname.
     private static string? TrustedLocalTailscaleName(string statusJson)
     {
         using var d = JsonDocument.Parse(statusJson);
@@ -318,47 +331,59 @@ internal sealed class PaymentsDashboard : Form
     private async Task CheckHttpsStatus()
     {
         string? exe = Tailscale();
-        if (exe == null) { Remote("HTTPS 10000 : Tailscale du PC indisponible."); return; }
-        var (exit, content) = await InvokeTailscale(exe, "status --json");
-        if (exit != 0) { Remote("Tailscale non connecte : HTTPS indisponible"); return; }
-        paymentsHostname = TrustedLocalTailscaleName(content);
-        if (paymentsHostname == null) {
-            Remote("Nom du PC en dehors du tailnet CHK : aucun HTTPS modifie.");
-            return;
-        }
+        if (exe == null) { Remote("Tailscale indisponible. MCP universel preserve."); return; }
+        var (exit, status) = await InvokeTailscale(exe, "status --json");
+        if (exit != 0) { Remote("Tailscale deconnecte. Aucune route modifiee."); return; }
+        paymentsHostname = TrustedLocalTailscaleName(status);
+        if (paymentsHostname == null) { Remote("Nom Tailscale inattendu. Aucune route modifiee."); return; }
         var (code, config) = await InvokeTailscale(exe, "serve status --json");
-        if (code != 0) { Remote("Tailscale actif, service HTTPS 10000 non verifie."); return; }
-        int target = PaymentHttpsTarget(config);
-        Remote(target == activePort
-            ? "HTTPS Paiements 10000 : dirige vers le service " + activePort
-            : target == 0 ? "HTTPS Paiements 10000 : non configure"
-            : "HTTPS 10000 protege : dirige deja vers un autre port (" + target + ").");
+        if (code != 0) { Remote("Routes illisibles. Aucune modification."); return; }
+        var selected = ChoosePrivateHttpsPort(config);
+        selectedHttpsPort = selected.port;
+        if (selected.port == 0) {
+            Remote("Tous les ports HTTPS prives CHK sont deja utilises. Ne rien remplacer.");
+        } else if (selected.alreadyOwned) {
+            Remote("HTTPS prive " + selected.port + " OK vers Paiements " + activePort);
+        } else {
+            Remote("HTTPS prive " + selected.port + " libre · activer pour Android.");
+        }
     }
+
     private async Task ConfigureHttpsIfSafe()
     {
-        // Never call "serve reset", "funnel", port 443, or the universal MCP.
+        // Only add an unused PRIVATE Serve route 11001-11004. NEVER call Funnel,
+        // reset, 443, 8443, 10000, or modify Universal Control /mcp.
         string? exe = Tailscale();
-        if (exe == null) { Remote("Tailscale Windows absent : serveur Paiements local seulement."); return; }
-        var (statusCode, content) = await InvokeTailscale(exe, "status --json");
-        if (statusCode != 0) { Remote("Tailscale non connecte, HTTPS en attente."); return; }
-        paymentsHostname = TrustedLocalTailscaleName(content);
-        if (paymentsHostname == null) {
-            Remote("HTTPS bloque : ce PC n'appartient pas au tailnet CHK attendu.");
-            return;
-        }
+        if (exe == null) { Remote("Tailscale Windows indisponible, moteur local conserve."); return; }
+        var (statusCode, status) = await InvokeTailscale(exe, "status --json");
+        if (statusCode != 0) { Remote("Tailscale deconnecte; aucune route modifiee."); return; }
+        paymentsHostname = TrustedLocalTailscaleName(status);
+        if (paymentsHostname == null) { Remote("Identite Tailscale inattendue; aucune route modifiee."); return; }
         var (code, config) = await InvokeTailscale(exe, "serve status --json");
-        if (code != 0) { Remote("Configuration Tailscale Serve illisible : aucune route modifiee."); return; }
-        int target = PaymentHttpsTarget(config);
-        if (target != 0) {
-            if (target == activePort)
-                Remote("HTTPS Paiements 10000 deja configure sur " + activePort + " · " + PaymentsHttps);
-            else
-                Remote("HTTPS 10000 deja utilise (destination " + target + "). Aucune route modifiee.");
+        if (code != 0) { Remote("Impossible d'auditer les routes; rien n'est modifie."); return; }
+        var choice = ChoosePrivateHttpsPort(config);
+        selectedHttpsPort = choice.port;
+        if (choice.port == 0) {
+            Remote("Ports prives 11001-11004 occupes; aucun service remplace.");
             return;
         }
-        var (result, output) = await InvokeTailscale(exe, "serve --bg --https=10000 http://127.0.0.1:" + activePort);
-        if (result != 0) { Remote("Tailscale a refuse le port 10000. MCP universel intact."); WriteLog(output); return; }
-        Remote("HTTPS 10000 demande : " + PaymentsHttps + " · verifier sur Android.");
+        if (choice.alreadyOwned) {
+            Remote("HTTPS PRIVE ACTIF " + PaymentsHttps + " vers localhost:" + activePort);
+            return;
+        }
+        var (result, output) = await InvokeTailscale(exe,
+            "serve --bg --https=" + choice.port + " http://127.0.0.1:" + activePort);
+        if (result != 0) {
+            Remote("Tailscale a refuse le nouveau port " + choice.port + ". Aucun port existant remplace.");
+            WriteLog(output);
+            return;
+        }
+        // Check the actual routing before marking the setup complete.
+        var (verifiedCode, verified) = await InvokeTailscale(exe, "serve status --json");
+        if (verifiedCode == 0 && TargetOnPort(verified, choice.port) == activePort)
+            Remote("HTTPS PRIVE ACTIVE " + PaymentsHttps + " · Android peut s'appairer.");
+        else
+            Remote("Configuration HTTPS non confirmee : verifier les connexions.");
     }
     private static string StartupKey = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     private static bool ReadAutoStart() {
