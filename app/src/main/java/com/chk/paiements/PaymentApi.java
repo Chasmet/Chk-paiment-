@@ -15,7 +15,10 @@ public final class PaymentApi {
     PaymentApi(Context context) { this.context = context.getApplicationContext(); }
 
     private JSONObject request(String method, String path, JSONObject data, boolean needsAuth) throws Exception {
-        String base = SecureStore.getBaseUrl(context);
+        return requestAt(SecureStore.getBaseUrl(context), method, path, data, needsAuth);
+    }
+
+    private JSONObject requestAt(String base, String method, String path, JSONObject data, boolean needsAuth) throws Exception {
         if (base.isEmpty()) throw new IllegalStateException("Configurer l'URL du serveur de paiements");
         URL url = new URL(base + path);
         if (!url.getProtocol().equals("https")) throw new IllegalArgumentException("HTTPS requis");
@@ -56,9 +59,44 @@ public final class PaymentApi {
         } finally { c.disconnect(); }
     }
 
+    // The PC can be pc-salon or chk-universal-1. Discover the real CHK Payments
+    // service using TLS and /health; never use the universal /mcp port 443.
     public JSONObject pair(String pairCode) throws Exception {
-        return request("POST", "/api/v1/pair",
-                new JSONObject().put("code", pairCode).put("device_name", "CHK Paiements Android"), false);
+        if (pairCode == null || !pairCode.trim().matches("[a-fA-F0-9]{48}"))
+            throw new IllegalArgumentException("Code d'appairage invalide (48 caracteres hexadecimaux).");
+        String[] hosts = {
+                "https://pc-salon.taild9e4de.ts.net:8443",
+                "https://chk-universal-1.taild9e4de.ts.net:8443"
+        };
+        JSONObject body = new JSONObject().put("code", pairCode.trim().toLowerCase(java.util.Locale.ROOT))
+                .put("device_name", "CHK Paiements Android");
+        boolean foundService = false;
+        Exception lastPairError = null;
+        for (String host : hosts) {
+            try {
+                JSONObject health = requestAt(host, "GET", "/health", null, false);
+                if (!"CHK Paiements Sidecar".equals(health.optString("service"))) continue;
+                foundService = true;
+                try {
+                    JSONObject response = requestAt(host, "POST", "/api/v1/pair", body, false);
+                    String deviceToken = response.optString("device_token", "");
+                    if (!deviceToken.startsWith("chkpay_") || deviceToken.length() < 32)
+                        throw new IllegalStateException("Reponse d'appairage du serveur incorrecte.");
+                    SecureStore.setBaseUrl(context, host);
+                    return response;
+                } catch (Exception e) {
+                    lastPairError = e;
+                }
+            } catch (javax.net.ssl.SSLException e) {
+                // Never bypass TLS certificate verification or downgrade to HTTP.
+                lastPairError = e;
+            } catch (Exception e) {
+                lastPairError = e;
+            }
+        }
+        if (foundService)
+            throw new IllegalStateException("Serveur Paiements trouve, mais code refuse ou expire. Generer un nouveau code sur le PC.", lastPairError);
+        throw new IllegalStateException("Aucun service CHK Paiements HTTPS 8443 accessible sur Tailscale. Verifier la connexion du PC et du telephone.", lastPairError);
     }
 
     public JSONArray activity() throws Exception {
