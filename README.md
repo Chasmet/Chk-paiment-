@@ -29,3 +29,6 @@ La version Windows possède sa propre fenêtre, une icône de notification, un b
 - Un vrai test d'appairage Android avec le PC du propriétaire reste nécessaire. Aucun paiement bancaire réel n'est activé.
 
 L'ancien installateur CMD fourni dans les releases de test précédentes est remplacé par le programme graphique Windows ; ne pas l'utiliser pour une nouvelle installation.
+
+### Conflit de port Windows 8791 (résolu dans la version suivante)
+Si le port 8791 est occupé, le programme **ne ferme aucun autre service**. Il reconnaît un moteur CHK Paiements existant ou sélectionne automatiquement le premier port local libre parmi 8792, 8793, 8795, 8796 et 8797, puis adapte sa propre tentative de route HTTPS 8443. Si la route 8443 existe déjà avec une autre destination, elle n'est pas modifiée et le logiciel le signale. Le MCP universel /mcp sur 443 est toujours préservé. Cette logique est vérifiée dans un test Windows qui occupe volontairement le port 8791.
