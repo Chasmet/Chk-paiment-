@@ -46,7 +46,6 @@ internal sealed class PaymentsDashboard : Form
 {
     private const string ServerHost = "chk-universal-1.taild9e4de.ts.net";
     private const string HttpsPayments = "https://" + ServerHost + ":8443";
-    private const string LocalHealth = "http://127.0.0.1:8791/health";
     private static readonly string Home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CHK-Paiements");
     private static readonly string Runtime = Path.Combine(Home, "runtime-v1");
     private static readonly string Data = Path.Combine(Home, "data");
@@ -155,27 +154,52 @@ internal sealed class PaymentsDashboard : Form
             Directory.Move(temp, Runtime);
         } finally { if (Directory.Exists(temp)) Directory.Delete(temp, true); }
     }
-    private static async Task<bool> LocalServiceReady()
+
+    // Protect all other local services. Never kill a process to claim a port.
+    private static readonly int[] CandidatePorts = { 8791, 8792, 8793, 8795, 8796, 8797 };
+    private int activePort = 8791;
+
+    private static async Task<bool> LocalServiceReady(int port)
     {
-        try { string json = await Http.GetStringAsync(LocalHealth);
+        try {
+            string json = await Http.GetStringAsync("http://127.0.0.1:" + port + "/health");
             using var doc = JsonDocument.Parse(json);
             return doc.RootElement.GetProperty("service").GetString() == "CHK Paiements Sidecar";
         } catch { return false; }
     }
+
+    private static bool PortAvailable(int port)
+    {
+        try {
+            using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+            listener.Start();
+            return true;
+        } catch (System.Net.Sockets.SocketException) { return false; }
+    }
+
+    private async Task<(int port, bool existing)> FindAvailablePaymentsPort()
+    {
+        // Prefer a genuine running payment service, never infer that another service is ours.
+        foreach (int port in CandidatePorts)
+            if (await LocalServiceReady(port)) return (port, true);
+        foreach (int port in CandidatePorts)
+            if (PortAvailable(port)) return (port, false);
+        throw new InvalidOperationException("Aucun port Paiements disponible. Les autres processus sont preserves.");
+    }
+
     private async Task StartCore()
     {
-        Say("Preparation du moteur Paiements integre...");
+        Say("Recherche d'un port Paiements libre, sans toucher aux autres services...");
         await Task.Run(ExtractRuntime);
         Directory.CreateDirectory(Data);
-        if (await LocalServiceReady()) {
-            serviceReady = true; Say("MOTEUR PAIEMENTS ACTIF · localhost:8791");
+        var choice = await FindAvailablePaymentsPort();
+        activePort = choice.port;
+        if (choice.existing) {
+            serviceReady = true;
+            Say("MOTEUR PAIEMENTS DEJA ACTIF · localhost:" + activePort);
             return;
         }
-        using (var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 8791)) {
-            try { listener.Start(); }
-            catch { throw new InvalidOperationException("Port local 8791 occupe. Aucune modification du service existant."); }
-            listener.Stop();
-        }
+        if (activePort != 8791) Say("Port 8791 occupe · CHK Paiements bascule sur " + activePort);
         var info = new ProcessStartInfo {
             FileName = Path.Combine(Runtime, "node.exe"),
             Arguments = "\"" + Path.Combine(Runtime, "payments", "sidecar.mjs") + "\"",
@@ -185,19 +209,23 @@ internal sealed class PaymentsDashboard : Form
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
-        info.Environment["PAYMENTS_PORT"] = "8791";
+        info.Environment["PAYMENTS_PORT"] = activePort.ToString();
         info.Environment["PAYMENTS_DATA_FILE"] = Path.Combine(Data, "payments-orders.json");
         info.Environment["PAYMENTS_DEVICES_FILE"] = Path.Combine(Data, "payment-devices.json");
-        ownedNode = Process.Start(info) ?? throw new InvalidOperationException("Impossible de demarrer le moteur Node.js");
+        ownedNode = Process.Start(info) ?? throw new InvalidOperationException("Impossible de demarrer CHK Paiements");
         ownedNode.OutputDataReceived += (_, e) => { if (e.Data != null) WriteLog(e.Data); };
         ownedNode.ErrorDataReceived += (_, e) => { if (e.Data != null) WriteLog(e.Data); };
         ownedNode.BeginOutputReadLine(); ownedNode.BeginErrorReadLine();
-        for (int i = 0; i < 36; i++) {
-            if (await LocalServiceReady()) { serviceReady = true; Say("MOTEUR PAIEMENTS ACTIF · localhost:8791"); return; }
-            if (ownedNode.HasExited) throw new InvalidOperationException("Le moteur Paiements a quitte au demarrage. Consulte le journal local.");
+        for (int i = 0; i < 40; i++) {
+            if (await LocalServiceReady(activePort)) {
+                serviceReady = true;
+                Say("MOTEUR PAIEMENTS ACTIF · localhost:" + activePort);
+                return;
+            }
+            if (ownedNode.HasExited) throw new InvalidOperationException("Le moteur Paiements a quitte au demarrage. Voir le journal local.");
             await Task.Delay(250);
         }
-        throw new InvalidOperationException("Le moteur Paiements ne repond pas sur le port 8791.");
+        throw new InvalidOperationException("Service Paiements sans reponse sur " + activePort);
     }
     private async Task GeneratePairCode()
     {
@@ -224,8 +252,8 @@ internal sealed class PaymentsDashboard : Form
         Say("CODE GENERE ET COPIE · valable 10 minutes · a saisir sur Android");
     }
     private async Task UpdateStatus() {
-        serviceReady = await LocalServiceReady();
-        Say(serviceReady ? "MOTEUR PAIEMENTS ACTIF · localhost:8791" : "MOTEUR PAIEMENTS ARRETE · clic sur DEMARRER");
+        serviceReady = await LocalServiceReady(activePort);
+        Say(serviceReady ? "MOTEUR PAIEMENTS ACTIF · localhost:" + activePort : "MOTEUR PAIEMENTS ARRETE · clic sur DEMARRER");
     }
     private static string? Tailscale()
     {
@@ -285,7 +313,7 @@ internal sealed class PaymentsDashboard : Form
             else Remote("Port 8443 deja utilise : aucune route modifiee.");
             return;
         }
-        var (result, output) = await InvokeTailscale(exe, "serve --bg --https=8443 http://127.0.0.1:8791");
+        var (result, output) = await InvokeTailscale(exe, "serve --bg --https=8443 http://127.0.0.1:" + activePort);
         if (result != 0) { Remote("Tailscale a refuse le port 8443. MCP universel intact."); WriteLog(output); return; }
         Remote("HTTPS 8443 demande : " + HttpsPayments + " · verifier sur Android.");
     }
