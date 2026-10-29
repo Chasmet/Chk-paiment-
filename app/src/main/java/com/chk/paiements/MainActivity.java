@@ -22,7 +22,7 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends Activity {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private LinearLayout root, activityList;
-    private TextView status, counts;
+    private TextView status, counts, perApp;
     private EditText urlField, codeField;
     private Button pairButton, refreshButton, updateButton;
     private TextView updateStatus;
@@ -118,6 +118,7 @@ public final class MainActivity extends Activity {
         });
         counts=label("Aucune donnée bancaire stockée sur ce téléphone",14,MUTE);root.addView(counts);
         status=label("Configuration nécessaire avant connexion",13,MUTE);root.addView(status);
+        perApp=label("Classement par application : aucune donnée",13,MUTE);root.addView(perApp);
         activityList=new LinearLayout(this);activityList.setOrientation(LinearLayout.VERTICAL);root.addView(activityList);
 
         if (android.os.Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) {
@@ -148,12 +149,12 @@ public final class MainActivity extends Activity {
         if (SecureStore.getToken(this).isEmpty()) { status.setText("Appairage requis.");return; }
         run("Lecture des transactions réelles…",() -> {
             PaymentApi api=new PaymentApi(this);
-            JSONArray activity=api.activity(); JSONArray reviews=api.pendingReviews();
-            if (activity==null || reviews==null) throw new IllegalStateException("Réponse incomplète");
-            runOnUiThread(() -> render(activity,reviews));
+            JSONArray activity=api.activity(); JSONArray reviews=api.pendingReviews(); JSONArray summary=api.summary();
+            if (activity==null || reviews==null || summary==null) throw new IllegalStateException("Réponse incomplète");
+            runOnUiThread(() -> render(activity,reviews,summary));
         });
     }
-    private void render(JSONArray activity,JSONArray reviews) {
+    private void render(JSONArray activity,JSONArray reviews,JSONArray summary) {
         activityList.removeAllViews();
         int attempts=0, paid=0, failed=0, refunded=0;
         List<JSONObject> manual=new ArrayList<>(), attemptsList=new ArrayList<>(), paidList=new ArrayList<>(), failedList=new ArrayList<>();
@@ -166,6 +167,21 @@ public final class MainActivity extends Activity {
         }
         counts.setText("Paiements confirmés : "+paid+"   ·   Essais : "+attempts+
                 "\nÉchecs : "+failed+"   ·   Remboursements : "+refunded+"   ·   À valider : "+reviews.length());
+        StringBuilder breakdown=new StringBuilder("CLASSEMENT PAR APPLICATION\n");
+        for(int i=0;i<summary.length();i++) {
+            JSONObject item=summary.optJSONObject(i);
+            if(item==null)continue;
+            breakdown.append(item.optString("app_id","Application")).append(" : ")
+              .append(item.optInt("confirmed")).append(" paiements, ")
+              .append(item.optInt("attempts")).append(" essais, ")
+              .append(item.optInt("awaiting_review")).append(" à valider");
+            int cents=item.optInt("gross_confirmed_cents",0);
+            String currency=item.optString("currency","eur").toUpperCase(java.util.Locale.ROOT);
+            breakdown.append("\n  Recettes brutes confirmées : ")
+              .append(String.format(java.util.Locale.FRANCE,"%.2f",cents/100.0))
+              .append(" ").append(currency).append("\n");
+        }
+        perApp.setText(breakdown.toString());
         status.setText("Synchronisé avec le serveur · une tentative n'est pas un paiement");
         section("À VALIDER APRÈS PAIEMENT",manual,true);
         section("PAIEMENTS CONFIRMÉS",paidList,false);
@@ -180,6 +196,7 @@ public final class MainActivity extends Activity {
             p.addView(label(o.optString("app_id","Application")+" · "+o.optString("sku","Article"),16,TEXT));
             String state=o.optString("status")+" / "+o.optString("approval_status","—");
             p.addView(label(state,13,0xFFCCD9ED));
+            if(o.has("amount_cents"))p.addView(label(String.format(java.util.Locale.FRANCE,"Montant : %.2f %s",o.optInt("amount_cents")/100.0,o.optString("currency","eur").toUpperCase(java.util.Locale.ROOT)),13,0xFF8DE1D5));
             p.addView(label("Commande : "+o.optString("order_id"),11,MUTE));
             if(canReview) {
                 String id=o.optString("order_id");
