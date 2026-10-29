@@ -132,6 +132,7 @@ public final class MainActivity extends Activity {
             PaymentSyncWorker.schedule(this);
             refresh();
         }
+        UpdateCheckWorker.schedule(this);
         checkUpdates();
     }
     private void pair() {
