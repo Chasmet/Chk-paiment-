@@ -44,8 +44,9 @@ internal static class Program
 
 internal sealed class PaymentsDashboard : Form
 {
-    private const string ServerHost = "chk-universal-1.taild9e4de.ts.net";
-    private const string HttpsPayments = "https://" + ServerHost + ":8443";
+    private const string TrustedTailnetSuffix = ".taild9e4de.ts.net";
+    private string? paymentsHostname;
+    private string PaymentsHttps => "https://" + paymentsHostname + ":8443";
     private static readonly string Home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CHK-Paiements");
     private static readonly string Runtime = Path.Combine(Home, "runtime-v1");
     private static readonly string Data = Path.Combine(Home, "data");
@@ -301,16 +302,28 @@ internal sealed class PaymentsDashboard : Form
         return 0;
     }
 
+    // Accept only our known Tailscale domain and the name of THIS PC from tailscale status.
+    private static string? TrustedLocalTailscaleName(string statusJson)
+    {
+        using var d = JsonDocument.Parse(statusJson);
+        if (!d.RootElement.TryGetProperty("Self", out var self) ||
+            !self.TryGetProperty("DNSName", out var value) ||
+            value.ValueKind != JsonValueKind.String) return null;
+        string dns = (value.GetString() ?? "").TrimEnd('.').ToLowerInvariant();
+        if (!dns.EndsWith(TrustedTailnetSuffix, StringComparison.Ordinal)) return null;
+        if (!Regex.IsMatch(dns, @"^[a-z0-9-]+\.taild9e4de\.ts\.net$")) return null;
+        return dns;
+    }
+
     private async Task CheckHttpsStatus()
     {
         string? exe = Tailscale();
         if (exe == null) { Remote("HTTPS 8443 : Tailscale du PC indisponible."); return; }
         var (exit, content) = await InvokeTailscale(exe, "status --json");
         if (exit != 0) { Remote("Tailscale non connecte : HTTPS indisponible"); return; }
-        using var doc = JsonDocument.Parse(content);
-        string dns = doc.RootElement.GetProperty("Self").GetProperty("DNSName").GetString()?.TrimEnd('.') ?? "";
-        if (!dns.Equals(ServerHost, StringComparison.OrdinalIgnoreCase)) {
-            Remote("HTTPS 8443 non configure : ce PC utilise un autre nom Tailscale.");
+        paymentsHostname = TrustedLocalTailscaleName(content);
+        if (paymentsHostname == null) {
+            Remote("Nom du PC en dehors du tailnet CHK : aucun HTTPS modifie.");
             return;
         }
         var (code, config) = await InvokeTailscale(exe, "serve status --json");
@@ -328,10 +341,9 @@ internal sealed class PaymentsDashboard : Form
         if (exe == null) { Remote("Tailscale Windows absent : serveur Paiements local seulement."); return; }
         var (statusCode, content) = await InvokeTailscale(exe, "status --json");
         if (statusCode != 0) { Remote("Tailscale non connecte, HTTPS en attente."); return; }
-        using var document = JsonDocument.Parse(content);
-        string dns = document.RootElement.GetProperty("Self").GetProperty("DNSName").GetString()?.TrimEnd('.') ?? "";
-        if (!dns.Equals(ServerHost, StringComparison.OrdinalIgnoreCase)) {
-            Remote("HTTPS bloque par securite : nom Tailscale de ce PC different de " + ServerHost);
+        paymentsHostname = TrustedLocalTailscaleName(content);
+        if (paymentsHostname == null) {
+            Remote("HTTPS bloque : ce PC n'appartient pas au tailnet CHK attendu.");
             return;
         }
         var (code, config) = await InvokeTailscale(exe, "serve status --json");
@@ -339,14 +351,14 @@ internal sealed class PaymentsDashboard : Form
         int target = PaymentHttpsTarget(config);
         if (target != 0) {
             if (target == activePort)
-                Remote("HTTPS Paiements 8443 deja configure sur " + activePort + " · " + HttpsPayments);
+                Remote("HTTPS Paiements 8443 deja configure sur " + activePort + " · " + PaymentsHttps);
             else
                 Remote("HTTPS 8443 deja utilise (destination " + target + "). Aucune route modifiee.");
             return;
         }
         var (result, output) = await InvokeTailscale(exe, "serve --bg --https=8443 http://127.0.0.1:" + activePort);
         if (result != 0) { Remote("Tailscale a refuse le port 8443. MCP universel intact."); WriteLog(output); return; }
-        Remote("HTTPS 8443 demande : " + HttpsPayments + " · verifier sur Android.");
+        Remote("HTTPS 8443 demande : " + PaymentsHttps + " · verifier sur Android.");
     }
     private static string StartupKey = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     private static bool ReadAutoStart() {
