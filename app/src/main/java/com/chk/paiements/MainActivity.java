@@ -41,7 +41,8 @@ public final class MainActivity extends Activity {
         e.setSingleLine(true); e.setTextColor(TEXT); e.setHintTextColor(MUTE); e.setHint(hint);
         return e;
     }
-    private LinearLayout panel() {
+    private LinearLayout panel() { return panel(root); }
+    private LinearLayout panel(LinearLayout parent) {
         LinearLayout p=new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL);
         p.setPadding(dp(12),dp(10),dp(12),dp(10));
@@ -49,7 +50,7 @@ public final class MainActivity extends Activity {
         p.setBackgroundColor(0xFF1B2940);
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
         params.setMargins(0,0,0,dp(10));
-        root.addView(p,params);
+        parent.addView(p,params);
         return p;
     }
     private interface Operation { void run() throws Exception; }
@@ -175,7 +176,7 @@ public final class MainActivity extends Activity {
         activityList.addView(label(title+" ("+values.size()+")",15,0xFF74DECA));
         if(values.isEmpty()){activityList.addView(label("Aucune opération",12,MUTE));return;}
         for(JSONObject o:values) {
-            LinearLayout p=panel();
+            LinearLayout p=panel(activityList);
             p.addView(label(o.optString("app_id","Application")+" · "+o.optString("sku","Article"),16,TEXT));
             String state=o.optString("status")+" / "+o.optString("approval_status","—");
             p.addView(label(state,13,0xFFCCD9ED));
