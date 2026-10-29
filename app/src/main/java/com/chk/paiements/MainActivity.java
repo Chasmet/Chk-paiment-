@@ -84,14 +84,18 @@ public final class MainActivity extends Activity {
         refreshButton.setOnClickListener(v -> refresh());
         Button logout=button("Dissocier ce téléphone");
         logout.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setTitle("Dissocier le téléphone ?")
-                .setMessage("Le jeton local sera supprimé. Il faudra aussi révoquer l'appareil sur le serveur.")
+                .setTitle("Révoquer ce téléphone ?")
+                .setMessage("Le serveur invalidera son accès avant de supprimer la clé locale.")
                 .setNegativeButton("Annuler",null)
-                .setPositiveButton("Dissocier",(d,w) -> {
-                    SecureStore.clearToken(this);
-                    PaymentSyncWorker.cancel(this);
-                    status.setText("Jeton local effacé. Révocation côté serveur requise.");
-                }).show());
+                .setPositiveButton("Révoquer",(d,w) ->
+                    run("Révocation sécurisée en cours…",() -> {
+                        if (!new PaymentApi(this).revokeThisDevice())
+                            throw new IllegalStateException("Révocation serveur non confirmée");
+                        SecureStore.clearToken(this);
+                        PaymentSyncWorker.cancel(this);
+                        runOnUiThread(() -> status.setText("Accès révoqué côté serveur et jeton effacé."));
+                    })
+                ).show());
         connection.addView(logout);
         LinearLayout updates=panel();
         updates.addView(label("SkillMajAuto · Mises à jour GitHub Releases",17,TEXT));
