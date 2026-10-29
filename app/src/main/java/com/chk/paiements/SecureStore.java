@@ -15,6 +15,8 @@ import javax.crypto.spec.GCMParameterSpec;
 public final class SecureStore {
     private static final String KEY = "chk_payments_owner_v1";
     private static final String FILE = "chk_payments_config";
+    // HTTPS dédié au sidecar sur 8443 : ne modifie pas le MCP universel sur 443.
+    public static final String DEFAULT_PAYMENTS_URL = "https://chk-universal-1.taild9e4de.ts.net:8443";
     private SecureStore() {}
 
     private static SharedPreferences preferences(Context ctx) {
@@ -24,13 +26,13 @@ public final class SecureStore {
     public static void setBaseUrl(Context ctx, String value) {
         String url = value == null ? "" : value.trim().replaceAll("/+$", "");
         if (!url.startsWith("https://") || !url.matches("https://[A-Za-z0-9.-]+(?::[0-9]{2,5})?") ||
-                url.matches("https://chk-universal-1\\.taild9e4de\\.ts\\.net(?::[0-9]{2,5})?"))
+                url.equals("https://chk-universal-1.taild9e4de.ts.net"))
             throw new IllegalArgumentException("URL HTTPS du service Paiements uniquement (ne pas utiliser /mcp universel)");
         preferences(ctx).edit().putString("base", url).apply();
     }
 
     public static String getBaseUrl(Context ctx) {
-        return preferences(ctx).getString("base", "");
+        return preferences(ctx).getString("base", DEFAULT_PAYMENTS_URL);
     }
 
     private static SecretKey key() throws Exception {
