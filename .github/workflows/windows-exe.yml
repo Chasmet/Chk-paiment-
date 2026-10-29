@@ -77,6 +77,35 @@ jobs:
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
             Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.CommandLine -like '*CHK-Paiements*sidecar.mjs*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
           }
+      - name: Test de conflit de port — ne jamais fermer un autre serveur
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $blockingPort = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 8791)
+          $blockingPort.Start()
+          $exe=(Resolve-Path windows/dist/CHK-Paiements.exe).Path
+          $proc=$null
+          try {
+            $proc=Start-Process -FilePath $exe -PassThru
+            $ready=$false
+            for ($i=0;$i -lt 85;$i++) {
+              if ($proc.HasExited) { throw 'Application fermee alors que 8791 est utilise par un autre serveur' }
+              try {
+                $response=Invoke-RestMethod 'http://127.0.0.1:8792/health' -TimeoutSec 2
+                if ($response.service -eq 'CHK Paiements Sidecar') { $ready=$true; break }
+              } catch {}
+              Start-Sleep -Milliseconds 450
+            }
+            if (!$ready) { throw 'Port de secours 8792 non utilise' }
+            $port = [System.Net.Sockets.TcpClient]::new()
+            try { $port.Connect('127.0.0.1', 8791) }
+            finally { $port.Dispose() }
+            Write-Host 'PASS : un autre programme peut garder 8791, CHK Paiements fonctionne sur 8792'
+          } finally {
+            if ($proc) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+            Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.CommandLine -like '*CHK-Paiements*sidecar.mjs*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            $blockingPort.Stop()
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: CHK-Paiements-PC-Windows-${{ github.run_number }}
