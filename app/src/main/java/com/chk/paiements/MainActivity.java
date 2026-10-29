@@ -75,8 +75,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout connection=panel();
         connection.addView(label("Connexion sécurisée au module Paiements",18,TEXT));
-        if (SecureStore.getToken(this).isEmpty()) SecureStore.setBaseUrl(this, SecureStore.DEFAULT_PAYMENTS_URL);
-        connection.addView(label("Adresse du serveur Paiements prédéfinie : port HTTPS 8443",13,0xFF74DECA));
+        connection.addView(label("Tailscale : recherche automatique du PC Paiements sur HTTPS 8443",13,0xFF74DECA));
         codeField=field("Code d'appairage à usage unique"); connection.addView(codeField);
         pairButton=button("Appairer mon téléphone"); connection.addView(pairButton);
         pairButton.setOnClickListener(v -> pair());
@@ -140,14 +139,13 @@ public final class MainActivity extends Activity {
     }
     private void pair() {
         String code=codeField.getText().toString().trim();
-        if (code.length()<16) { status.setText("Saisir le code long généré sur ton PC."); return; }
-        run("Appairage en cours…",() -> {
-            SecureStore.setBaseUrl(this,SecureStore.DEFAULT_PAYMENTS_URL);
+        if (!code.matches("[a-fA-F0-9]{48}")) { status.setText("Saisir le code de 48 caractères généré sur ton PC."); return; }
+        run("Recherche automatique du PC CHK Paiements sur Tailscale…",() -> {
             JSONObject reply=new PaymentApi(this).pair(code);
             SecureStore.setToken(this,reply.getString("device_token"));
             runOnUiThread(() -> {
                 codeField.setText("");
-                status.setText("Téléphone appairé. Surveillance périodique activée.");
+                status.setText("Téléphone appairé à "+SecureStore.getBaseUrl(this)+". Surveillance activée.");
                 PaymentSyncWorker.schedule(this);
                 refresh();
             });
