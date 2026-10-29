@@ -24,7 +24,7 @@ public final class SecureStore {
     public static void setBaseUrl(Context ctx, String value) {
         String url = value == null ? "" : value.trim().replaceAll("/+$", "");
         if (!url.startsWith("https://") || !url.matches("https://[A-Za-z0-9.-]+(?::[0-9]{2,5})?") ||
-                url.contains("chk-universal-1.taild9e4de.ts.net/mcp"))
+                url.matches("https://chk-universal-1\\.taild9e4de\\.ts\\.net(?::[0-9]{2,5})?"))
             throw new IllegalArgumentException("URL HTTPS du service Paiements uniquement (ne pas utiliser /mcp universel)");
         preferences(ctx).edit().putString("base", url).apply();
     }
