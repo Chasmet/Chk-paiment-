@@ -23,7 +23,7 @@ public final class MainActivity extends Activity {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private LinearLayout root, activityList;
     private TextView status, counts, perApp;
-    private EditText urlField, codeField;
+    private EditText codeField;
     private Button pairButton, refreshButton, updateButton;
     private TextView updateStatus;
     private SkillMajAuto.Release availableRelease;
@@ -75,11 +75,12 @@ public final class MainActivity extends Activity {
 
         LinearLayout connection=panel();
         connection.addView(label("Connexion sécurisée au module Paiements",18,TEXT));
-        urlField=field("URL HTTPS dédiée : https://paiements.example.com"); urlField.setText(SecureStore.getBaseUrl(this)); connection.addView(urlField);
+        if (SecureStore.getToken(this).isEmpty()) SecureStore.setBaseUrl(this, SecureStore.DEFAULT_PAYMENTS_URL);
+        connection.addView(label("Adresse du serveur Paiements prédéfinie : port HTTPS 8443",13,0xFF74DECA));
         codeField=field("Code d'appairage à usage unique"); connection.addView(codeField);
         pairButton=button("Appairer mon téléphone"); connection.addView(pairButton);
         pairButton.setOnClickListener(v -> pair());
-        connection.addView(label("Ne pas saisir l'adresse /mcp universelle ici.",12,MUTE));
+        connection.addView(label("Le serveur universel /mcp sur 443 reste inchangé. Le service Paiements doit être activé sur ton PC.",12,MUTE));
         refreshButton=button("Actualiser les opérations"); connection.addView(refreshButton);
         refreshButton.setOnClickListener(v -> refresh());
         Button logout=button("Dissocier ce téléphone");
@@ -122,7 +123,7 @@ public final class MainActivity extends Activity {
             } else checkUpdates();
         });
         counts=label("Aucune donnée bancaire stockée sur ce téléphone",14,MUTE);root.addView(counts);
-        status=label("Configuration nécessaire avant connexion",13,MUTE);root.addView(status);
+        status=label("Serveur Paiements séparé : en attente de disponibilité ou de code d’appairage",13,MUTE);root.addView(status);
         perApp=label("Classement par application : aucune donnée",13,MUTE);root.addView(perApp);
         activityList=new LinearLayout(this);activityList.setOrientation(LinearLayout.VERTICAL);root.addView(activityList);
 
@@ -138,10 +139,10 @@ public final class MainActivity extends Activity {
         checkUpdates();
     }
     private void pair() {
-        String base=urlField.getText().toString().trim(), code=codeField.getText().toString().trim();
+        String code=codeField.getText().toString().trim();
         if (code.length()<16) { status.setText("Saisir le code long généré sur ton PC."); return; }
         run("Appairage en cours…",() -> {
-            SecureStore.setBaseUrl(this,base);
+            SecureStore.setBaseUrl(this,SecureStore.DEFAULT_PAYMENTS_URL);
             JSONObject reply=new PaymentApi(this).pair(code);
             SecureStore.setToken(this,reply.getString("device_token"));
             runOnUiThread(() -> {
