@@ -275,6 +275,32 @@ internal sealed class PaymentsDashboard : Form
         catch (OperationCanceledException) { try { p.Kill(true); } catch {} throw new TimeoutException("Tailscale ne repond pas"); }
         return (p.ExitCode, stdout + Environment.NewLine + stderr);
     }
+    // Return 0 when 8443 is unused, actual local target port, -1 when occupied by an unknown service.
+    // Only examine the 8443 Web handler; never inspect or rewrite universal port 443.
+    private static int PaymentHttpsTarget(string json)
+    {
+        using var config = JsonDocument.Parse(json);
+        if (!config.RootElement.TryGetProperty("Web", out var web) || web.ValueKind != JsonValueKind.Object)
+            return 0;
+        foreach (var endpoint in web.EnumerateObject())
+        {
+            if (!endpoint.Name.EndsWith(":8443", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!endpoint.Value.TryGetProperty("Handlers", out var handlers) || handlers.ValueKind != JsonValueKind.Object)
+                return -1;
+            foreach (var handler in handlers.EnumerateObject())
+            {
+                if (!handler.Value.TryGetProperty("Proxy", out var proxy)) return -1;
+                if (proxy.ValueKind != JsonValueKind.String) return -1;
+                if (Uri.TryCreate(proxy.GetString(), UriKind.Absolute, out var uri) &&
+                    (uri.Host == "127.0.0.1" || uri.Host == "localhost") && uri.Port > 0)
+                    return uri.Port;
+                return -1;
+            }
+            return -1;
+        }
+        return 0;
+    }
+
     private async Task CheckHttpsStatus()
     {
         string? exe = Tailscale();
@@ -289,9 +315,11 @@ internal sealed class PaymentsDashboard : Form
         }
         var (code, config) = await InvokeTailscale(exe, "serve status --json");
         if (code != 0) { Remote("Tailscale actif, service HTTPS 8443 non verifie."); return; }
-        Remote(config.Contains("8443") && config.Contains("8791")
-            ? "HTTPS CHK Paiements 8443 : configuré, confirmer l'acces Android."
-            : "HTTPS Paiements 8443 : non configure");
+        int target = PaymentHttpsTarget(config);
+        Remote(target == activePort
+            ? "HTTPS Paiements 8443 : dirige vers le service " + activePort
+            : target == 0 ? "HTTPS Paiements 8443 : non configure"
+            : "HTTPS 8443 protege : dirige deja vers un autre port (" + target + ").");
     }
     private async Task ConfigureHttpsIfSafe()
     {
@@ -308,9 +336,12 @@ internal sealed class PaymentsDashboard : Form
         }
         var (code, config) = await InvokeTailscale(exe, "serve status --json");
         if (code != 0) { Remote("Configuration Tailscale Serve illisible : aucune route modifiee."); return; }
-        if (config.Contains("8443")) {
-            if (config.Contains("8791")) Remote("HTTPS 8443 deja reserve au module Paiements · " + HttpsPayments);
-            else Remote("Port 8443 deja utilise : aucune route modifiee.");
+        int target = PaymentHttpsTarget(config);
+        if (target != 0) {
+            if (target == activePort)
+                Remote("HTTPS Paiements 8443 deja configure sur " + activePort + " · " + HttpsPayments);
+            else
+                Remote("HTTPS 8443 deja utilise (destination " + target + "). Aucune route modifiee.");
             return;
         }
         var (result, output) = await InvokeTailscale(exe, "serve --bg --https=8443 http://127.0.0.1:" + activePort);
