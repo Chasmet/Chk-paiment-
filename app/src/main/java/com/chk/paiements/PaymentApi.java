@@ -73,10 +73,6 @@ public final class PaymentApi {
         return request("GET", "/api/v1/summary", null, true).optJSONArray("items");
     }
 
-    public JSONArray summary() throws Exception {
-        return request("GET", "/api/v1/summary", null, true).optJSONArray("items");
-    }
-
     public JSONObject review(String orderId, String decision) throws Exception {
         return request("POST", "/api/v1/reviews", new JSONObject()
                 .put("order_id", orderId).put("decision", decision), true);
