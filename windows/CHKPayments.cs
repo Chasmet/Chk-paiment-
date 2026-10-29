@@ -32,6 +32,10 @@ internal static class Program
                 foreach (string required in new[] { "node.exe", "payments/hub.mjs", "payments/sidecar.mjs", "payments/pair-code.mjs" })
                     if (!archive.Entries.Any(e => e.FullName.Replace('\\', '/') == required))
                         throw new InvalidDataException("Runtime incomplet: " + required);
+                // Static guard: all three Funnel/public ports remain exclusively for other services.
+                foreach (int reserved in new[] { 443, 8443, 10000 })
+                    if (PaymentsDashboard.PrivatePortsForTest().Contains(reserved))
+                        throw new InvalidDataException("Un port existant a ete selectionne par CHK Paiements.");
                 Environment.ExitCode = 0;
             }
             catch (Exception ex) { Console.Error.WriteLine(ex.Message); Environment.ExitCode = 1; }
@@ -44,6 +48,7 @@ internal static class Program
 
 internal sealed class PaymentsDashboard : Form
 {
+    internal static int[] PrivatePortsForTest() => (int[])PrivateHttpsPorts.Clone();
     private const string TrustedTailnetSuffix = ".taild9e4de.ts.net";
     private string? paymentsHostname;
     private static readonly int[] PrivateHttpsPorts = { 11001, 11002, 11003, 11004 };
