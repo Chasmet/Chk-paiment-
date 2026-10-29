@@ -5,6 +5,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: chk-payments-debug-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   debug:
     runs-on: ubuntu-latest
@@ -23,8 +26,8 @@ jobs:
           test -n "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses > /dev/null || true
           "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
-      - name: Compiler APK debug
-        run: gradle --no-daemon :app:assembleDebug
+      - name: Tests Java + compilation APK debug
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: chk-paiements-android-debug
