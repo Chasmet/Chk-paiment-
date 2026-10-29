@@ -1,5 +1,5 @@
 package com.chk.paiements;
-import android.app.BroadcastReceiver;
+import android.content.BroadcastReceiver;
 import android.app.DownloadManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
