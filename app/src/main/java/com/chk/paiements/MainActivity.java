@@ -24,7 +24,9 @@ public final class MainActivity extends Activity {
     private LinearLayout root, activityList;
     private TextView status, counts;
     private EditText urlField, codeField;
-    private Button pairButton, refreshButton;
+    private Button pairButton, refreshButton, updateButton;
+    private TextView updateStatus;
+    private SkillMajAuto.Release availableRelease;
     private static final int BG=0xFF10192A, TEXT=0xFFF0F5FF, MUTE=0xFFA9B6CB, GREEN=0xFF1B9B86;
 
     private int dp(int x) { return (int)(x * getResources().getDisplayMetrics().density + .5f); }
@@ -90,6 +92,29 @@ public final class MainActivity extends Activity {
                     status.setText("Jeton local effacé. Révocation côté serveur requise.");
                 }).show());
         connection.addView(logout);
+        LinearLayout updates=panel();
+        updates.addView(label("SkillMajAuto · Mises à jour GitHub Releases",17,TEXT));
+        updateStatus=label("Recherche des versions officielles…",12,MUTE);
+        updates.addView(updateStatus);
+        updateButton=button("Vérifier les mises à jour");
+        updates.addView(updateButton);
+        updateButton.setOnClickListener(v -> {
+            SkillMajAuto updater=new SkillMajAuto(this);
+            java.io.File ready=updater.verifiedDownload();
+            if(ready!=null) {
+                try { updater.install(ready,this); }
+                catch(Exception e) { updateStatus.setText(e.getMessage()); }
+                return;
+            }
+            if(availableRelease!=null) {
+                try {
+                    updater.download(availableRelease);
+                    updateStatus.setText("Téléchargement de la version "+availableRelease.version+" en cours…");
+                    updateButton.setText("Vérifier après téléchargement");
+                    availableRelease=null;
+                } catch(Exception e) { updateStatus.setText("Téléchargement impossible : "+e.getMessage()); }
+            } else checkUpdates();
+        });
         counts=label("Aucune donnée bancaire stockée sur ce téléphone",14,MUTE);root.addView(counts);
         status=label("Configuration nécessaire avant connexion",13,MUTE);root.addView(status);
         activityList=new LinearLayout(this);activityList.setOrientation(LinearLayout.VERTICAL);root.addView(activityList);
@@ -101,6 +126,7 @@ public final class MainActivity extends Activity {
             PaymentSyncWorker.schedule(this);
             refresh();
         }
+        checkUpdates();
     }
     private void pair() {
         String base=urlField.getText().toString().trim(), code=codeField.getText().toString().trim();
@@ -175,5 +201,26 @@ public final class MainActivity extends Activity {
                     runOnUiThread(this::refresh);
                 })).show();
     }
+    private void checkUpdates() {
+        updateStatus.setText("Vérification GitHub en cours…");
+        executor.execute(() -> {
+            SkillMajAuto updater=new SkillMajAuto(this);
+            java.io.File ready=updater.verifiedDownload();
+            if(ready!=null) {
+                runOnUiThread(() -> {
+                    updateStatus.setText("APK téléchargé, signature compatible et version supérieure vérifiées.");
+                    updateButton.setText("Installer la mise à jour");
+                });
+                return;
+            }
+            SkillMajAuto.Result result=updater.check();
+            runOnUiThread(() -> {
+                availableRelease=result.release;
+                updateStatus.setText(result.message);
+                updateButton.setText(result.release!=null?"Télécharger la version "+result.release.version:"Vérifier les mises à jour");
+            });
+        });
+    }
+
     @Override protected void onDestroy(){executor.shutdown();super.onDestroy();}
 }
