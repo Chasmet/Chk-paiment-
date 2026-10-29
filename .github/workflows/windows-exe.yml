@@ -1,0 +1,95 @@
+name: CHK Paiements - application Windows EXE
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows-exe.yml'
+permissions:
+  contents: write
+concurrency:
+  group: chk-payments-windows-exe
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recuperer uniquement le moteur Paiements (branche isolee)
+        uses: actions/checkout@v4
+        with:
+          repository: Chasmet/CHK-serveur-Universal-Control
+          ref: 912d09c708c97561d7017d1814b7d4f4ed03436e
+          path: backend
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Creer le moteur embarque sans installer Node sur le PC utilisateur
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force payload/payments | Out-Null
+          Copy-Item backend/payments/hub.mjs payload/payments/hub.mjs
+          Copy-Item backend/payments/sidecar.mjs payload/payments/sidecar.mjs
+          Copy-Item backend/payments/pair-code.mjs payload/payments/pair-code.mjs
+          $nodeBin=(Get-Command node.exe -ErrorAction Stop).Source
+          Copy-Item $nodeBin payload/node.exe
+          $source=(Get-ChildItem payload/payments -File).Name
+          if (!('sidecar.mjs' -in $source) -or !('hub.mjs' -in $source)) { throw 'Le moteur de paiement est incomplet' }
+          Compress-Archive -Path payload/* -DestinationPath windows/runtime.zip -CompressionLevel Optimal
+          if (!(Test-Path windows/runtime.zip)) { throw 'Runtime zip embarque absent' }
+      - name: Compiler veritable interface graphique WinForms autonome
+        shell: pwsh
+        run: |
+          dotnet publish windows/CHKPayments.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -p:IncludeNativeLibrariesForSelfExtract=true -o windows/dist
+          if ($LASTEXITCODE -ne 0) { throw 'Compilation EXE Windows echouee' }
+          $exe='windows/dist/CHK-Paiements.exe'
+          if (!(Test-Path $exe)) { throw 'CHK-Paiements.exe manquant' }
+          $bytes=[IO.File]::ReadAllBytes((Resolve-Path $exe))
+          if ($bytes.Length -lt 1000000 -or $bytes[0] -ne 77 -or $bytes[1] -ne 90) { throw 'EXE Windows invalide' }
+      - name: Verifier ressources et lancement reel sous Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=(Resolve-Path windows/dist/CHK-Paiements.exe).Path
+          $check=Start-Process -FilePath $exe -ArgumentList '--self-test' -PassThru -Wait
+          if ($check.ExitCode -ne 0) { throw 'Auto test moteur integre echoue' }
+          $proc=Start-Process -FilePath $exe -PassThru
+          try {
+            $ready=$false
+            for ($i=0;$i -lt 75;$i++) {
+              if ($proc.HasExited) { throw 'GUI Windows quittee anormalement' }
+              try {
+                $response=Invoke-RestMethod 'http://127.0.0.1:8791/health' -TimeoutSec 2
+                if ($response.service -eq 'CHK Paiements Sidecar') { $ready=$true; break }
+              } catch { }
+              Start-Sleep -Milliseconds 400
+            }
+            if (!$ready) { throw 'Service local Paiements ne demarre pas depuis executable' }
+            Write-Host 'PASS: CHK Paiements.exe demarre et Node sidecar repond sur 8791'
+            Write-Host 'MCP UNIVERSAL CONTROL 443 non installe ni modifie durant ce test'
+          } finally {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.CommandLine -like '*CHK-Paiements*sidecar.mjs*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CHK-Paiements-PC-Windows-${{ github.run_number }}
+          path: windows/dist/CHK-Paiements.exe
+          retention-days: 30
+          if-no-files-found: error
+      - name: Publier CHK Paiements.exe sur GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference='Stop'
+          $tag="pc-test-${{ github.run_number }}"
+          gh release create $tag windows/dist/CHK-Paiements.exe --prerelease --target "$env:GITHUB_SHA" --title "CHK Paiements PC Windows TEST $tag" --notes "Vraie application Windows avec interface graphique, moteur local et code Android. Ne modifie pas Universal Control /mcp. HTTPS Tailscale separe uniquement si identite du PC correspond. Paiements reels non actives."
+          if ($LASTEXITCODE -ne 0) { throw 'Publication GitHub Releases impossible; utiliser artefact workflow' }
