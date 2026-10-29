@@ -7,7 +7,7 @@
   <application android:allowBackup="false" android:usesCleartextTraffic="false"
     android:label="CHK Paiements" android:icon="@drawable/ic_app" android:theme="@android:style/Theme.Material.Light.NoActionBar">
     <provider android:name="androidx.core.content.FileProvider"
-       android:authorities="com.chk.paiements.updates" android:exported="false"
+       android:authorities="${applicationId}.updates" android:exported="false"
        android:grantUriPermissions="true">
        <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths"/>
     </provider>
