@@ -46,7 +46,7 @@ internal sealed class PaymentsDashboard : Form
 {
     private const string TrustedTailnetSuffix = ".taild9e4de.ts.net";
     private string? paymentsHostname;
-    private string PaymentsHttps => "https://" + paymentsHostname + ":8443";
+    private string PaymentsHttps => "https://" + paymentsHostname + ":10000";
     private static readonly string Home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CHK-Paiements");
     private static readonly string Runtime = Path.Combine(Home, "runtime-v1");
     private static readonly string Data = Path.Combine(Home, "data");
@@ -59,7 +59,7 @@ internal sealed class PaymentsDashboard : Form
     private readonly CheckBox autostart = new() { Text = "Demarrer CHK Paiements avec Windows", AutoSize = true, ForeColor = Color.White };
     private readonly Button start = Button("DEMARRER LE SERVICE", 24, 146, 520, 43);
     private readonly Button pair = Button("GENERER ET COPIER LE CODE ANDROID", 24, 203, 520, 43);
-    private readonly Button https = Button("ACTIVER LE HTTPS SEPARE 8443", 24, 310, 520, 43);
+    private readonly Button https = Button("ACTIVER LE HTTPS SEPARE 10000", 24, 310, 520, 43);
     private readonly Button verify = Button("VERIFIER LES CONNEXIONS", 24, 367, 520, 43);
     private readonly NotifyIcon tray;
     private Process? ownedNode;
@@ -276,8 +276,8 @@ internal sealed class PaymentsDashboard : Form
         catch (OperationCanceledException) { try { p.Kill(true); } catch {} throw new TimeoutException("Tailscale ne repond pas"); }
         return (p.ExitCode, stdout + Environment.NewLine + stderr);
     }
-    // Return 0 when 8443 is unused, actual local target port, -1 when occupied by an unknown service.
-    // Only examine the 8443 Web handler; never inspect or rewrite universal port 443.
+    // Return 0 when 10000 is unused, actual local target port, -1 when occupied by an unknown service.
+    // Only examine the 10000 Web handler; never inspect or rewrite universal port 443.
     private static int PaymentHttpsTarget(string json)
     {
         using var config = JsonDocument.Parse(json);
@@ -285,7 +285,7 @@ internal sealed class PaymentsDashboard : Form
             return 0;
         foreach (var endpoint in web.EnumerateObject())
         {
-            if (!endpoint.Name.EndsWith(":8443", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!endpoint.Name.EndsWith(":10000", StringComparison.OrdinalIgnoreCase)) continue;
             if (!endpoint.Value.TryGetProperty("Handlers", out var handlers) || handlers.ValueKind != JsonValueKind.Object)
                 return -1;
             foreach (var handler in handlers.EnumerateObject())
@@ -318,7 +318,7 @@ internal sealed class PaymentsDashboard : Form
     private async Task CheckHttpsStatus()
     {
         string? exe = Tailscale();
-        if (exe == null) { Remote("HTTPS 8443 : Tailscale du PC indisponible."); return; }
+        if (exe == null) { Remote("HTTPS 10000 : Tailscale du PC indisponible."); return; }
         var (exit, content) = await InvokeTailscale(exe, "status --json");
         if (exit != 0) { Remote("Tailscale non connecte : HTTPS indisponible"); return; }
         paymentsHostname = TrustedLocalTailscaleName(content);
@@ -327,12 +327,12 @@ internal sealed class PaymentsDashboard : Form
             return;
         }
         var (code, config) = await InvokeTailscale(exe, "serve status --json");
-        if (code != 0) { Remote("Tailscale actif, service HTTPS 8443 non verifie."); return; }
+        if (code != 0) { Remote("Tailscale actif, service HTTPS 10000 non verifie."); return; }
         int target = PaymentHttpsTarget(config);
         Remote(target == activePort
-            ? "HTTPS Paiements 8443 : dirige vers le service " + activePort
-            : target == 0 ? "HTTPS Paiements 8443 : non configure"
-            : "HTTPS 8443 protege : dirige deja vers un autre port (" + target + ").");
+            ? "HTTPS Paiements 10000 : dirige vers le service " + activePort
+            : target == 0 ? "HTTPS Paiements 10000 : non configure"
+            : "HTTPS 10000 protege : dirige deja vers un autre port (" + target + ").");
     }
     private async Task ConfigureHttpsIfSafe()
     {
@@ -351,14 +351,14 @@ internal sealed class PaymentsDashboard : Form
         int target = PaymentHttpsTarget(config);
         if (target != 0) {
             if (target == activePort)
-                Remote("HTTPS Paiements 8443 deja configure sur " + activePort + " · " + PaymentsHttps);
+                Remote("HTTPS Paiements 10000 deja configure sur " + activePort + " · " + PaymentsHttps);
             else
-                Remote("HTTPS 8443 deja utilise (destination " + target + "). Aucune route modifiee.");
+                Remote("HTTPS 10000 deja utilise (destination " + target + "). Aucune route modifiee.");
             return;
         }
-        var (result, output) = await InvokeTailscale(exe, "serve --bg --https=8443 http://127.0.0.1:" + activePort);
-        if (result != 0) { Remote("Tailscale a refuse le port 8443. MCP universel intact."); WriteLog(output); return; }
-        Remote("HTTPS 8443 demande : " + PaymentsHttps + " · verifier sur Android.");
+        var (result, output) = await InvokeTailscale(exe, "serve --bg --https=10000 http://127.0.0.1:" + activePort);
+        if (result != 0) { Remote("Tailscale a refuse le port 10000. MCP universel intact."); WriteLog(output); return; }
+        Remote("HTTPS 10000 demande : " + PaymentsHttps + " · verifier sur Android.");
     }
     private static string StartupKey = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     private static bool ReadAutoStart() {
