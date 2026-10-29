@@ -1,34 +1,42 @@
 # CHK Paiements — Sync 30 Numérique
 
-Application Android privée d’administration des paiements des futures applications Sync 30 Numérique.
+Application Windows **CHK Paiements.exe** et application Android **CHK Paiements** pour administrer les licences et suivre les paiements des futures applications Sync 30 Numérique.
 
-## Architecture
-- Application Android : com.chk.paiements ; tableau de bord, historique classé, validation propriétaire facultative et surveillance en arrière-plan.
-- Moteur paiements isolé : https://github.com/Chasmet/CHK-serveur-Universal-Control/tree/feature/paiements-sync30/payments
-- MCP Paiements dédié : à construire séparément du serveur MCP universel.
-- Adresse EXISTANTE À NE PAS TOUCHER : https://chk-universal-1.taild9e4de.ts.net/mcp
+## Architecture protégée
 
-## Sécurité et déploiement
-- Aucun numéro de carte, mot de passe universel ou secret Stripe stocké dans l'application.
-- Un paiement doit être confirmé par le prestataire côté serveur. Un essai ne vaut pas un paiement.
-- Le serveur de paiements sera exposé sur une URL HTTPS distincte, à configurer plus tard sans toucher à /mcp.
-- La surveillance périodique Android utilisera WorkManager (cadence minimale 15 min, avec report possible). FCM sera ajouté pour notifications rapides quand Firebase sera configuré.
-- Aucun déploiement ni migration du serveur Windows CHK Universal Control 1.0.4 n'est effectué.
+**Aucune installation ou mise à jour de CHK Paiements ne doit modifier, remplacer ou arrêter :**
+- CHK Universal Control **1.0.4**, toujours serveur principal ;
+- le MCP universel `https://chk-universal-1.taild9e4de.ts.net/mcp` ;
+- les routes et ports Tailscale existants `443`, `8443`, `10000` ;
+- les connexions des autres applications.
 
-Voir docs/CONNEXION.md.
-## CHK Paiements.exe — application Windows (sans CMD)
+Le moteur CHK Paiements est un sidecar indépendant sur un port local libre parmi `8791, 8792, 8793, 8795, 8796, 8797`.
 
-La version Windows possède sa propre fenêtre, une icône de notification, un bouton pour démarrer le moteur Paiements et un bouton pour générer/copier le code d'appairage Android. Elle intègre Node.js et le module Paiements : aucune commande manuelle ni installation préalable de Node n'est nécessaire.
+## Connexion Android au PC
 
-- Source : `windows/CHKPayments.cs` ; compilation GitHub Actions `.github/workflows/windows-exe.yml`.
-- EXE autonome publié en version d'essai (si les permissions GitHub Releases le permettent), ou téléchargeable comme artefact GitHub Actions du workflow Windows.
-- Démarrage automatique Windows facultatif via HKCU Run (ne touche pas au démarrage de CHK Universal Control).
-- Service local séparé : `127.0.0.1:8791`, données privées `%LOCALAPPDATA%/CHK-Paiements/data`.
-- Tailscale : vérifie le nom DNS et l'occupation de `8443` avant de tenter d'ajouter uniquement la route HTTPS Paiements. En cas de différence d'identité, le logiciel n'altère aucune route existante.
-- **Le MCP universel `https://chk-universal-1.taild9e4de.ts.net/mcp` reste strictement inchangé.**
-- Un vrai test d'appairage Android avec le PC du propriétaire reste nécessaire. Aucun paiement bancaire réel n'est activé.
+CHK Paiements.exe lit les routes Tailscale existantes avant toute action. Il réutilise uniquement une route lui appartenant déjà ou choisit un port privé totalement libre entre **11001 et 11004** avec `tailscale serve`, jamais `funnel` ou `reset`.
 
-L'ancien installateur CMD fourni dans les releases de test précédentes est remplacé par le programme graphique Windows ; ne pas l'utiliser pour une nouvelle installation.
+L'application Android détecte l'API Paiements par HTTPS sur les machines `pc-salon` et `chk-universal-1` aux ports privés dédiés. Un code unique de 10 minutes permet l'appairage ; la connexion est protégée par Tailscale et TLS. Si aucun port n'est disponible ou si Tailscale refuse la création, aucune route n'est remplacée.
 
-### Conflit de port Windows 8791 (résolu dans la version suivante)
-Si le port 8791 est occupé, le programme **ne ferme aucun autre service**. Il reconnaît un moteur CHK Paiements existant ou sélectionne automatiquement le premier port local libre parmi 8792, 8793, 8795, 8796 et 8797, puis adapte sa propre tentative de route HTTPS 8443. Si la route 8443 existe déjà avec une autre destination, elle n'est pas modifiée et le logiciel le signale. Le MCP universel /mcp sur 443 est toujours préservé. Cette logique est vérifiée dans un test Windows qui occupe volontairement le port 8791.
+La prise en charge de ports HTTPS privés autres que les valeurs standards est soumise aux capacités de la version Tailscale installée : vérifier réellement sur le PC, puis sur Android.
+
+## MCP CHK Paiements pour ChatGPT
+
+Le MCP Paiements possède un service local distinct. **Secure MCP Tunnel** est le chemin recommandé pour le connecter à ChatGPT sans libérer ni remplacer de port public existant. Il nécessite encore la création du tunnel dans OpenAI Platform, la configuration locale de `tunnel-client` et l'installation du connecteur ChatGPT. **Il n'est pas encore connecté.**
+
+Le MCP reste en lecture seule en phase initiale. Les opérations bancaires réelles, OAuth, gestion des paiements, remboursements et licences nécessitent des contrôles supplémentaires avant la mise en production.
+
+Voir [MCP_SANS_REMPLACEMENT.md](docs/MCP_SANS_REMPLACEMENT.md) pour la procédure et l'état réel.
+
+## Distribution
+
+- Version PC : GitHub Releases `pc-test-*`, EXE autonome WinForms, sans fichier CMD à lancer.
+- Version Android : GitHub Releases `test-*`, APK de test.
+- SkillMajAuto : détection des releases stables signées, publication stable suspendue tant que les secrets de signature Android permanents ne sont pas définis.
+- Aucun paiement bancaire réel n'est activé.
+
+## État de validation
+
+La CI vérifie la compilation Android, la compilation et le démarrage Windows, le moteur embarqué et le repli de port local lorsque 8791 est occupé. Il reste à valider sur les machines réelles la connexion HTTPS privée, l'appairage du téléphone et le MCP via Secure MCP Tunnel.
+
+Toutes les modifications en cours concernent le dépôt CHK Paiements ; **le MCP universel de production n'est pas modifié**.
