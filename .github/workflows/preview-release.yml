@@ -44,6 +44,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="test-${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG" CHK-Paiements-TEST.apk SHA256SUMS.txt installer/Installer-CHK-Paiements.ps1 --target "$GITHUB_SHA" \
+          gh release create "$TAG" CHK-Paiements-TEST.apk SHA256SUMS.txt installer/Installer-CHK-Paiements.ps1 installer/Installer-CHK-Paiements.cmd --target "$GITHUB_SHA" \
             --prerelease --title "CHK Paiements TEST $TAG" \
             --notes "Version de test non commerciale. APK debug com.chk.paiements.debug. Installer Windows distinct fourni : un lancement sur PC reste nécessaire. Pas de paiement réel actif avant configuration bancaire. Signature de debug propre au runner : ne convient pas aux mises à jour stables SkillMajAuto."
