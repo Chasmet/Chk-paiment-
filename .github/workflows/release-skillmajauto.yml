@@ -1,5 +1,12 @@
 name: CHK Paiements — Release SkillMajAuto signée
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'build.gradle'
+      - 'gradle.properties'
+      - 'settings.gradle'
   workflow_dispatch:
     inputs:
       version:
@@ -27,23 +34,42 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Vérifier présence de la signature persistante
+        id: signature
+        env:
+          STORE: ${{ secrets.PAYMENTS_KEYSTORE_BASE64 }}
+          PASSWORD: ${{ secrets.PAYMENTS_KEYSTORE_PASSWORD }}
+          ALIAS: ${{ secrets.PAYMENTS_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.PAYMENTS_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$STORE" && -n "$PASSWORD" && -n "$ALIAS" && -n "$KEY_PASSWORD" ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Première signature Android permanente non provisionnée. Aucune Release ne sera créée afin de garantir les mises à jour futures."
+          fi
       - name: Valider version et code
+        if: steps.signature.outputs.ready == 'true'
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           RELEASE_CODE: ${{ inputs.version_code }}
         run: |
+          if [[ -z "$RELEASE_VERSION" ]]; then RELEASE_VERSION="0.1.${GITHUB_RUN_NUMBER}"; fi
+          if [[ -z "$RELEASE_CODE" ]]; then RELEASE_CODE="$((10000 + GITHUB_RUN_NUMBER))"; fi
           [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Version incorrecte'; exit 1; }
           [[ "$RELEASE_CODE" =~ ^[1-9][0-9]{0,8}$ ]] || { echo 'versionCode incorrect'; exit 1; }
           echo "VERSION=$RELEASE_VERSION" >> "$GITHUB_ENV"
           echo "VERSION_CODE=$RELEASE_CODE" >> "$GITHUB_ENV"
           echo "ASSET=CHK-Paiements-$RELEASE_VERSION.apk" >> "$GITHUB_ENV"
       - name: Installer SDK Android
+        if: steps.signature.outputs.ready == 'true'
         run: |
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
           test -n "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" 'platforms;android-35' 'build-tools;35.0.0'
       - name: Préparer signature propriétaire
+        if: steps.signature.outputs.ready == 'true'
         env:
           PAYMENTS_KEYSTORE_BASE64: ${{ secrets.PAYMENTS_KEYSTORE_BASE64 }}
           PAYMENTS_KEYSTORE_PASSWORD: ${{ secrets.PAYMENTS_KEYSTORE_PASSWORD }}
@@ -59,6 +85,7 @@ jobs:
           test -s "$RUNNER_TEMP/chk-paiements-release.jks"
           echo "PAYMENTS_KEYSTORE_FILE=$RUNNER_TEMP/chk-paiements-release.jks" >> "$GITHUB_ENV"
       - name: Compiler APK signé
+        if: steps.signature.outputs.ready == 'true'
         env:
           PAYMENTS_KEYSTORE_PASSWORD: ${{ secrets.PAYMENTS_KEYSTORE_PASSWORD }}
           PAYMENTS_KEY_ALIAS: ${{ secrets.PAYMENTS_KEY_ALIAS }}
@@ -72,6 +99,7 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk "$ASSET"
           sha256sum "$ASSET" > "$ASSET.sha256"
       - name: Publier une release stable pour SkillMajAuto
+        if: steps.signature.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -81,5 +109,6 @@ jobs:
           fi
           gh release create "v$VERSION" "$ASSET" "$ASSET.sha256" --title "CHK Paiements v$VERSION" --notes 'APK signé. Mise à jour SkillMajAuto vérifiée par signature Android et version supérieure.' --latest
       - name: Nettoyer la clé
+        if: steps.signature.outputs.ready == 'true'
         if: always()
         run: rm -f "$RUNNER_TEMP/chk-paiements-release.jks"
