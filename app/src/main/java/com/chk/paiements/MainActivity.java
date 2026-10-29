@@ -99,6 +99,7 @@ public final class MainActivity extends Activity {
         connection.addView(logout);
         LinearLayout updates=panel();
         updates.addView(label("SkillMajAuto · Mises à jour GitHub Releases",17,TEXT));
+        updates.addView(label("Vérification automatique à l’ouverture et en arrière-plan. Aucun réglage nécessaire.",12,MUTE));
         updateStatus=label("Recherche des versions officielles…",12,MUTE);
         updates.addView(updateStatus);
         updateButton=button("Vérifier les mises à jour");
