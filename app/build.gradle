@@ -30,7 +30,10 @@ android {
   }
 
   buildTypes {
-    debug { versionNameSuffix '-debug' }
+    debug {
+      applicationIdSuffix '.debug'
+      versionNameSuffix '-debug'
+    }
     release {
       minifyEnabled false
       if (System.getenv('PAYMENTS_KEYSTORE_FILE') && file(System.getenv('PAYMENTS_KEYSTORE_FILE')).isFile()) {
