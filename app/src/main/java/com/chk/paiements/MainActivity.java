@@ -133,6 +133,7 @@ public final class MainActivity extends Activity {
             refresh();
         }
         UpdateCheckWorker.schedule(this);
+        SkillMajAutoWorker.schedule(this);
         checkUpdates();
     }
     private void pair() {
