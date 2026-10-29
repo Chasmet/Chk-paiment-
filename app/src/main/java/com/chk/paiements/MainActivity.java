@@ -75,7 +75,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout connection=panel();
         connection.addView(label("Connexion sécurisée au module Paiements",18,TEXT));
-        connection.addView(label("Tailscale : recherche automatique du PC Paiements sur HTTPS 8443",13,0xFF74DECA));
+        connection.addView(label("Tailscale : recherche automatique du PC Paiements sur HTTPS 10000",13,0xFF74DECA));
         codeField=field("Code d'appairage à usage unique"); connection.addView(codeField);
         pairButton=button("Appairer mon téléphone"); connection.addView(pairButton);
         pairButton.setOnClickListener(v -> pair());
