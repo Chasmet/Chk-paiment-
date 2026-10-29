@@ -23,8 +23,8 @@ public final class PaymentApi {
         URL url = new URL(base + path);
         if (!url.getProtocol().equals("https")) throw new IllegalArgumentException("HTTPS requis");
         HttpsURLConnection c = (HttpsURLConnection) url.openConnection();
-        c.setConnectTimeout(12000);
-        c.setReadTimeout(15000);
+        c.setConnectTimeout(path.equals("/health") ? 1800 : 12000);
+        c.setReadTimeout(path.equals("/health") ? 2300 : 15000);
         c.setInstanceFollowRedirects(false);
         c.setRequestMethod(method);
         c.setRequestProperty("Accept", "application/json");
@@ -64,9 +64,17 @@ public final class PaymentApi {
     public JSONObject pair(String pairCode) throws Exception {
         if (pairCode == null || !pairCode.trim().matches("[a-fA-F0-9]{48}"))
             throw new IllegalArgumentException("Code d'appairage invalide (48 caracteres hexadecimaux).");
+        // Discover only the dedicated private payment routes. Never probe
+        // the Universal Control /mcp public route or change any Tailscale setting.
         String[] hosts = {
-                "https://pc-salon.taild9e4de.ts.net:10000",
-                "https://chk-universal-1.taild9e4de.ts.net:10000"
+                "https://pc-salon.taild9e4de.ts.net:11001",
+                "https://pc-salon.taild9e4de.ts.net:11002",
+                "https://pc-salon.taild9e4de.ts.net:11003",
+                "https://pc-salon.taild9e4de.ts.net:11004",
+                "https://chk-universal-1.taild9e4de.ts.net:11001",
+                "https://chk-universal-1.taild9e4de.ts.net:11002",
+                "https://chk-universal-1.taild9e4de.ts.net:11003",
+                "https://chk-universal-1.taild9e4de.ts.net:11004"
         };
         JSONObject body = new JSONObject().put("code", pairCode.trim().toLowerCase(java.util.Locale.ROOT))
                 .put("device_name", "CHK Paiements Android");
@@ -96,7 +104,7 @@ public final class PaymentApi {
         }
         if (foundService)
             throw new IllegalStateException("Serveur Paiements trouve, mais code refuse ou expire. Generer un nouveau code sur le PC.", lastPairError);
-        throw new IllegalStateException("Aucun service CHK Paiements HTTPS 10000 accessible sur Tailscale. Verifier la connexion du PC et du telephone.", lastPairError);
+        throw new IllegalStateException("Aucun service CHK Paiements HTTPS prive accessible sur Tailscale. Verifier la connexion du PC et du telephone.", lastPairError);
     }
 
     public JSONArray activity() throws Exception {
