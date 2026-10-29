@@ -65,8 +65,8 @@ public final class PaymentApi {
         if (pairCode == null || !pairCode.trim().matches("[a-fA-F0-9]{48}"))
             throw new IllegalArgumentException("Code d'appairage invalide (48 caracteres hexadecimaux).");
         String[] hosts = {
-                "https://pc-salon.taild9e4de.ts.net:8443",
-                "https://chk-universal-1.taild9e4de.ts.net:8443"
+                "https://pc-salon.taild9e4de.ts.net:10000",
+                "https://chk-universal-1.taild9e4de.ts.net:10000"
         };
         JSONObject body = new JSONObject().put("code", pairCode.trim().toLowerCase(java.util.Locale.ROOT))
                 .put("device_name", "CHK Paiements Android");
@@ -96,7 +96,7 @@ public final class PaymentApi {
         }
         if (foundService)
             throw new IllegalStateException("Serveur Paiements trouve, mais code refuse ou expire. Generer un nouveau code sur le PC.", lastPairError);
-        throw new IllegalStateException("Aucun service CHK Paiements HTTPS 8443 accessible sur Tailscale. Verifier la connexion du PC et du telephone.", lastPairError);
+        throw new IllegalStateException("Aucun service CHK Paiements HTTPS 10000 accessible sur Tailscale. Verifier la connexion du PC et du telephone.", lastPairError);
     }
 
     public JSONArray activity() throws Exception {
