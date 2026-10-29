@@ -109,6 +109,5 @@ jobs:
           fi
           gh release create "v$VERSION" "$ASSET" "$ASSET.sha256" --title "CHK Paiements v$VERSION" --notes 'APK signé. Mise à jour SkillMajAuto vérifiée par signature Android et version supérieure.' --latest
       - name: Nettoyer la clé
-        if: steps.signature.outputs.ready == 'true'
-        if: always()
+        if: always() && steps.signature.outputs.ready == 'true'
         run: rm -f "$RUNNER_TEMP/chk-paiements-release.jks"
