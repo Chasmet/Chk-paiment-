@@ -24,4 +24,4 @@ jobs:
         with:
           node-version: '22'
       - name: Tests sans paiement reel
-        run: node --test modules/google-play/entitlements.test.mjs
+        run: node --test modules/google-play/*.test.mjs
