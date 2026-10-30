@@ -20,7 +20,7 @@ export class GooglePlayEntitlements {
   constructor(filePath) {
     if (!filePath) throw fail("data_path_required");
     this.path = filePath;
-    this.state = { schema: 1, apps: {}, purchases: {}, overrides: {}, audit: [] };
+    this.state = { schema: 1, apps: {}, purchases: {}, trials: {}, overrides: {}, audit: [] };
     this.queue = Promise.resolve();
   }
 
@@ -29,6 +29,9 @@ export class GooglePlayEntitlements {
       const loaded = JSON.parse(await readFile(this.path, "utf8"));
       if (loaded.schema !== 1 || !loaded.apps || !loaded.purchases ||
           !loaded.overrides || !Array.isArray(loaded.audit)) throw fail("corrupt_data");
+      // Migration non destructive de l'ancien registre sans essais.
+      loaded.trials ??= {};
+      if (typeof loaded.trials !== "object" || Array.isArray(loaded.trials)) throw fail("corrupt_data");
       this.state = loaded;
     } catch (e) {
       if (e.code !== "ENOENT") throw e; // Ne jamais écraser des données corrompues.
@@ -86,6 +89,31 @@ export class GooglePlayEntitlements {
 
   listApps() {
     return Object.values(this.state.apps).map(a => ({ ...a }));
+  }
+
+  // 3 jours d'essai gratuits, SANS prélèvement ni renouvellement.
+  // authorizeCustomer DOIT authentifier le client côté serveur et associer
+  // l'identité à accountId : ne jamais accepter une simple déclaration de l'APK.
+  async startTrial({ appId, accountId, sku }, authorizeCustomer) {
+    if (!appPattern.test(appId || "") || !accountPattern.test(accountId || "") ||
+        !skuPattern.test(sku || "") || typeof authorizeCustomer !== "function")
+      throw fail("invalid_trial_input");
+    const verifiedIdentity = await authorizeCustomer({ appId, accountId });
+    if (verifiedIdentity !== true) throw fail("trial_identity_not_verified");
+    return this.mutate(state => {
+      if (!state.apps[appId]) throw fail("unknown_app");
+      const key = entitlementKey(appId, accountId, sku);
+      if (!state.trials[key]) {
+        const startedAt = now();
+        state.trials[key] = {
+          appId, accountId, sku, startedAt,
+          expiresAt: startedAt + 72 * 60 * 60 * 1000
+        };
+        this.audit(state, "trial_started", { appId, accountId, sku });
+      }
+      // Idempotent : un nouvel appel ne prolonge jamais l'essai.
+      return this.getEntitlement(appId, accountId, sku);
+    });
   }
 
   // verifyPurchase est un adaptateur de confiance côté PC, lié à l'API Google.
@@ -178,10 +206,17 @@ export class GooglePlayEntitlements {
       p.appId === appId && p.accountId === accountId && p.sku === sku);
     const valid = purchases.filter(p => p.status === "paid" &&
       (p.productType === "one_time" || (p.expiresAt && p.expiresAt > timestamp)));
-    const suspended = this.state.overrides[entitlementKey(appId, accountId, sku)]?.suspended === true;
+    const key = entitlementKey(appId, accountId, sku);
+    const suspended = this.state.overrides[key]?.suspended === true;
+    const trial = this.state.trials?.[key];
+    const trialActive = trial?.startedAt <= timestamp && trial?.expiresAt > timestamp;
+    const purchased = valid.length > 0;
     return {
-      appId, accountId, sku, access: valid.length > 0 && !suspended,
-      reason: suspended ? "owner_suspension" : valid.length ? "verified_purchase" : "no_active_purchase",
+      appId, accountId, sku,
+      access: (purchased || trialActive) && !suspended,
+      reason: suspended ? "owner_suspension" : purchased ? "verified_purchase" :
+        trialActive ? "trial_active" : trial ? "trial_expired" : "no_active_purchase",
+      trialEndsAt: trial?.expiresAt ?? null,
       checkedAt: timestamp
     };
   }
