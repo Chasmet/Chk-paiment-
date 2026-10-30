@@ -1,0 +1,27 @@
+name: CHK Paiements - tests licences Google Play
+on:
+  push:
+    branches: [feature/gestion-licences-google-play-v1]
+    paths:
+      - 'modules/google-play/**'
+      - '.github/workflows/play-entitlements-ci.yml'
+  pull_request:
+    paths:
+      - 'modules/google-play/**'
+      - '.github/workflows/play-entitlements-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Tests sans paiement reel
+        run: node --test modules/google-play/entitlements.test.mjs
